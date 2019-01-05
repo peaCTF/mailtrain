@@ -364,7 +364,7 @@ router.post('/:cid/subscribe', passport.parseForm, corsOrCsrfProtection, (req, r
             }
             try {
                 recaptcha.verify(req, function (error, data) {
-                    if (!req.recaptcha.error) {
+                    if (!error) {
                         verified = true;
                     }
                 });
