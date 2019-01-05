@@ -22,6 +22,9 @@ let mailHelpers = require('../lib/subscription-mail-helpers');
 
 let originWhitelist = config.cors && config.cors.origins || [];
 
+const Recaptcha = require('express-recaptcha').Recaptcha;
+let recaptcha;
+
 let corsOptions = {
     allowedHeaders: ['Content-Type', 'Origin', 'Accept', 'X-Requested-With'],
     methods: ['GET', 'POST'],
@@ -205,13 +208,17 @@ router.get('/:cid', passport.csrfProtection, (req, res, next) => {
                 data.customFields = fields.getRow(fieldList, data);
                 data.useEditor = true;
 
-                settings.list(['pgpPrivateKey', 'defaultAddress', 'defaultPostaddress'], (err, configItems) => {
+                settings.list(['pgpPrivateKey', 'defaultAddress', 'defaultPostaddress', 'recaptchaSiteKey', 'enableRecaptcha'], (err, configItems) => {
                     if (err) {
                         return next(err);
                     }
                     data.hasPubkey = !!configItems.pgpPrivateKey;
                     data.defaultAddress = configItems.defaultAddress;
                     data.defaultPostaddress = configItems.defaultPostaddress;
+                    data.enableRecaptcha = configItems.enableRecaptcha;
+                    if (configItems.enableRecaptcha) {
+                        data.recaptchaSiteKey = configItems.recaptchaSiteKey;
+                    }
 
                     data.template = {
                         template: 'subscription/web-subscribe.mjml.hbs',
@@ -347,6 +354,36 @@ router.post('/:cid/subscribe', passport.parseForm, corsOrCsrfProtection, (req, r
             error: err.message || err
         });
     };
+
+
+    let verified = false;
+    settings.list(['enableRecaptcha', 'recaptchaSiteKey', 'recaptchaServerKey'], (err, configItems) => {
+        if (configItems.enableRecaptcha) {
+            if (!recaptcha) {
+                recaptcha = new Recaptcha(configItems.recaptchaSiteKey, configItems.recaptchaServerKey);
+            }
+            try {
+                recaptcha.verify(req, function (error, data) {
+                    if (!req.recaptcha.error) {
+                        verified = true;
+                    }
+                });
+            } catch (e) {
+
+            }
+        } else {
+            verified = true;
+        }
+    });
+
+    if (!verified) {
+        if (req.xhr) {
+            return sendJsonError(_('Captcha not selected'), 400);
+        }
+        req.flash('danger', _('Captcha not selected'));
+        return res.redirect('/subscription/' + encodeURIComponent(req.params.cid) + '?' + tools.queryParams(req.body));
+    }
+
 
     let email = (req.body.email || '').toString().trim();
 
@@ -784,7 +821,7 @@ router.post('/:lcid/unsubscribe', passport.parseForm, passport.csrfProtection, (
 
 function handleUnsubscribe(list, subscription, autoUnsubscribe, campaignId, ip, res, next) {
     if ((list.unsubscriptionMode === lists.UnsubscriptionMode.ONE_STEP || list.unsubscriptionMode === lists.UnsubscriptionMode.ONE_STEP_WITH_FORM) ||
-        (autoUnsubscribe && (list.unsubscriptionMode === lists.UnsubscriptionMode.TWO_STEP || list.unsubscriptionMode === lists.UnsubscriptionMode.TWO_STEP_WITH_FORM)) ) {
+        (autoUnsubscribe && (list.unsubscriptionMode === lists.UnsubscriptionMode.TWO_STEP || list.unsubscriptionMode === lists.UnsubscriptionMode.TWO_STEP_WITH_FORM))) {
 
         subscriptions.changeStatus(list.id, subscription.id, campaignId, subscriptions.Status.UNSUBSCRIBED, (err, found) => {
             if (err) {
