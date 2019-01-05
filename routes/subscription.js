@@ -347,44 +347,7 @@ router.get('/:cid/widget', cors(corsOptions), (req, res, next) => {
 
 router.options('/:cid/subscribe', cors(corsOptions));
 
-router.post('/:cid/subscribe', passport.parseForm, corsOrCsrfProtection, (req, res, next) => {
-    let sendJsonError = (err, status) => {
-        res.status(status || err.status || 500);
-        res.json({
-            error: err.message || err
-        });
-    };
-
-
-    let verified = false;
-    settings.list(['enableRecaptcha', 'recaptchaSiteKey', 'recaptchaServerKey'], (err, configItems) => {
-        if (configItems.enableRecaptcha) {
-            if (!recaptcha) {
-                recaptcha = new Recaptcha(configItems.recaptchaSiteKey, configItems.recaptchaServerKey);
-            }
-            try {
-                recaptcha.verify(req, function (error, data) {
-                    if (!error) {
-                        verified = true;
-                    }
-                });
-            } catch (e) {
-
-            }
-        } else {
-            verified = true;
-        }
-    });
-
-    if (!verified) {
-        if (req.xhr) {
-            return sendJsonError(_('Captcha not selected'), 400);
-        }
-        req.flash('danger', _('Captcha not selected'));
-        return res.redirect('/subscription/' + encodeURIComponent(req.params.cid) + '?' + tools.queryParams(req.body));
-    }
-
-
+function processSubscribe(req, res, next) {
     let email = (req.body.email || '').toString().trim();
 
     if (!email) {
@@ -487,6 +450,36 @@ router.post('/:cid/subscribe', passport.parseForm, corsOrCsrfProtection, (req, r
                 }
             });
         });
+    });
+}
+
+router.post('/:cid/subscribe', passport.parseForm, corsOrCsrfProtection, (req, res, next) => {
+    let sendJsonError = (err, status) => {
+        res.status(status || err.status || 500);
+        res.json({
+            error: err.message || err
+        });
+    };
+
+    settings.list(['enableRecaptcha', 'recaptchaSiteKey', 'recaptchaServerKey'], (err, configItems) => {
+        if (configItems.enableRecaptcha) {
+            if (!recaptcha) {
+                recaptcha = new Recaptcha(configItems.recaptchaSiteKey, configItems.recaptchaServerKey);
+            }
+            recaptcha.verify(req, (error, data) => {
+                if (!error) {
+                    processSubscribe(req, res, next);
+                } else {
+                    if (req.xhr) {
+                        return sendJsonError(_('Captcha not selected'), 400);
+                    }
+                    req.flash('danger', _('Captcha not selected'));
+                    res.redirect('/subscription/' + encodeURIComponent(req.params.cid) + '?' + tools.queryParams(req.body));
+                }
+            });
+        } else {
+            processSubscribe(req, res, next);
+        }
     });
 });
 
