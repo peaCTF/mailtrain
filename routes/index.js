@@ -6,10 +6,8 @@ let _ = require('../lib/translate')._;
 
 /* GET home page. */
 router.get('/', (req, res) => {
-    res.render('index', {
-        indexPage: true,
-        title: _('Self Hosted Newsletter App')
-    });
+    res.status(403);
+    res.send();
 });
 
 module.exports = router;
